@@ -1,0 +1,51 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quter Live Quran Class</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial;background:#101514;color:#fff}.top{background:#176b45;padding:15px;display:flex;justify-content:space-between}.wrap{max-width:1200px;margin:auto;padding:10px}.grid{display:grid;grid-template-columns:1fr 310px;gap:10px}.stage{position:relative;background:#202725;border-radius:15px;min-height:600px;overflow:hidden}.remote{width:100%;height:600px;object-fit:cover;background:#161b19}.local{position:absolute;right:15px;top:15px;width:190px;height:130px;object-fit:cover;background:#000;border:2px solid #fff;border-radius:10px}.label{position:absolute;bottom:12px;left:12px;background:#0009;padding:7px;border-radius:7px}.controls{position:absolute;bottom:15px;left:50%;transform:translateX(-50%);display:flex;gap:8px}.controls button{width:48px;height:48px;border:0;border-radius:50%;cursor:pointer}.end{background:#d92d20;color:#fff}.side{background:#fff;color:#172033;border-radius:15px;padding:15px}.quran{background:#f5f8f6;padding:14px;border-radius:10px}.arabic{direction:rtl;text-align:right;font-size:23px;line-height:2}.chat{height:160px;overflow:auto;background:#f1f3f4;padding:10px;border-radius:9px}.row{display:flex;gap:5px;margin-top:7px}.row input{flex:1;padding:10px}.row button,.start{padding:10px;border:0;border-radius:8px;background:#176b45;color:white}.start{width:100%;margin-top:10px;font-weight:bold}@media(max-width:800px){.grid{grid-template-columns:1fr}.stage,.remote{min-height:430px;height:430px}}
+</style></head><body>
+<div class="top"><b>Quter • Live Quran Class</b><span id="state">Offline</span></div>
+<div class="wrap"><div class="grid">
+<div class="stage">
+<video id="remote" class="remote" autoplay playsinline></video>
+<video id="local" class="local" autoplay muted playsinline></video>
+<div class="label" id="remoteLabel">Teacher / Student</div>
+<div class="controls"><button onclick="toggleCam()">📷</button><button onclick="toggleMic()">🎙️</button><button onclick="document.documentElement.requestFullscreen()">⛶</button><button class="end" onclick="leave()">☎</button></div>
+</div>
+<div class="side">
+<h2>Quran Class</h2>
+<label>Class Room</label><input id="room" value="quter-demo" style="width:100%;padding:10px">
+<label>Role</label><select id="role" style="width:100%;padding:10px"><option value="student">Student</option><option value="teacher">Teacher</option></select>
+<button class="start" onclick="start()">Join Live Class</button>
+<p id="status">Join the same room from two devices/tabs.</p>
+<div class="quran"><h3>Surah Al-Fatihah</h3><div class="arabic">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ<br>الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ<br>الرَّحْمَٰنِ الرَّحِيمِ<br>مَالِكِ يَوْمِ الدِّينِ</div></div>
+<h3>Chat</h3><div id="chat" class="chat"></div>
+<div class="row"><input id="text" placeholder="Message"><button onclick="sendChat()">Send</button></div>
+</div></div></div>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket=io();let pc,stream,room,role,cam=true,mic=true;
+const rtc={iceServers:[{urls:"stun:stun.l.google.com:19302"}]};
+async function start(){
+ room=document.getElementById('room').value.trim();role=document.getElementById('role').value;
+ if(!room)return;
+ try{stream=await navigator.mediaDevices.getUserMedia({video:true,audio:true});document.getElementById('local').srcObject=stream;setup();socket.emit('join-class',{room,role});state.textContent='Joining';status.textContent='Connecting…';}
+ catch(e){status.textContent='Camera/microphone permission failed: '+e.message}
+}
+function setup(){
+ pc=new RTCPeerConnection(rtc);stream.getTracks().forEach(t=>pc.addTrack(t,stream));
+ pc.ontrack=e=>{document.getElementById('remote').srcObject=e.streams[0];remoteLabel.textContent=role==='teacher'?'Student':'Teacher'};
+ pc.onicecandidate=e=>{if(e.candidate)socket.emit('ice-candidate',{room,candidate:e.candidate})};
+}
+socket.on('joined',d=>{status.textContent=d.count>1?'Peer connected.':'Waiting for the other person…';state.textContent='Live'});
+socket.on('peer-joined',async()=>{if(role==='teacher'){let offer=await pc.createOffer();await pc.setLocalDescription(offer);socket.emit('offer',{room,offer})}});
+socket.on('offer',async offer=>{await pc.setRemoteDescription(offer);let answer=await pc.createAnswer();await pc.setLocalDescription(answer);socket.emit('answer',{room,answer})});
+socket.on('answer',async answer=>{await pc.setRemoteDescription(answer)});
+socket.on('ice-candidate',async c=>{try{await pc.addIceCandidate(c)}catch(e){}});
+socket.on('peer-left',()=>{status.textContent='Other participant left the class.';document.getElementById('remote').srcObject=null});
+socket.on('chat',m=>{chat.innerHTML+=`<div><b>${m.role}:</b> ${String(m.text).replace(/[<>&]/g,'')}</div>`;chat.scrollTop=chat.scrollHeight});
+function toggleCam(){if(!stream)return;cam=!cam;stream.getVideoTracks().forEach(t=>t.enabled=cam)}
+function toggleMic(){if(!stream)return;mic=!mic;stream.getAudioTracks().forEach(t=>t.enabled=mic)}
+function sendChat(){let v=text.value.trim();if(v){socket.emit('chat',{room,text:v,role});text.value=''}}
+function leave(){if(room)socket.emit('leave-class',{room});if(stream)stream.getTracks().forEach(t=>t.stop());if(pc)pc.close();state.textContent='Offline';status.textContent='Class ended';document.getElementById('remote').srcObject=null}
+</script></body></html>
